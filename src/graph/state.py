@@ -7,6 +7,7 @@ class State(TypedDict, total=False):
     context: Dict[str, Any]
     messages: List[Any]
     current_agent: str
+    step_index: int
     intermediate_steps: List[Dict[str, Any]]
     status: str  # planning | executing | finished | failed
     final_report: str

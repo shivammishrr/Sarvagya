@@ -16,6 +16,8 @@ def planner_node(state: State) -> State:
             "output": {"task_plan": plan},
         }
     ]
-    state["status"] = "planning"
+    # Move to execution phase; start from first step
+    state["status"] = "executing"
+    state["step_index"] = 0
     state["current_agent"] = "planner"
     return state
