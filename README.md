@@ -86,35 +86,36 @@ flowchart TD
 
 ```
 sarvagya/
-├── main.py                    CLI entry + DI
+├── main.py                    CLI entry point
 ├── prompts/
-│   └── system.md              Agent identity & rules
-├── core/                      Zero external dependencies
-│   ├── __init__.py            Composition root
-│   ├── types.py               8 dataclasses
-│   ├── loop.py                AgentLoop
-│   ├── context.py             Prompt assembly
-│   ├── tool_registry.py       Register + dispatch
+│   └── system.md              System prompt (markdown)
+├── core/
+│   ├── __init__.py            Wiring + _make_llm() + run()
+│   ├── types.py               ToolCall, Message, ToolDef, etc.
+│   ├── loop.py                AgentLoop class
+│   ├── context.py             build_context(), truncate_messages()
+│   ├── tool_registry.py       ToolRegistry class
 │   └── tools/
-│       ├── bash.py            Shell execution
-│       ├── file_ops.py        Read/write/edit
-│       ├── search_ops.py      Glob/grep
-│       └── web.py             Web fetch
-├── ports/                     Protocols only
-│   ├── llm.py                 LLMProvider
-│   ├── sandbox.py             Sandbox
-│   ├── memory.py              Memory
-│   └── search.py              WebSearch
-└── adapters/                  SDK implementations
+│       ├── __init__.py        init_tools()
+│       ├── bash.py            make_handler() → sandbox.execute()
+│       ├── file_ops.py        _read(), _write(), _edit()
+│       ├── search_ops.py      handle_glob(), handle_grep()
+│       └── web.py             handle_webfetch()
+├── ports/
+│   ├── llm.py                 LLMProvider protocol
+│   ├── sandbox.py             Sandbox protocol
+│   ├── memory.py              Memory protocol
+│   └── search.py              WebSearch protocol
+└── adapters/
     ├── llm/
-    │   ├── openai.py          OpenAI/Groq/Gemini
-    │   └── anthropic.py       Anthropic Claude
+    │   ├── openai.py          OpenAIAdapter
+    │   └── anthropic.py       AnthropicAdapter
     ├── sandbox/
-    │   └── local.py           Subprocess
+    │   └── local.py           LocalSandbox
     ├── memory/
-    │   └── filesystem.py      Markdown files
+    │   └── filesystem.py      FileMemory
     └── search/
-        └── tavily.py          Tavily search
+        └── tavily.py          TavilySearch
 ```
 
 ### Data Flow
