@@ -65,61 +65,6 @@ flowchart LR
 
 ## Implementation Details
 
-### Architecture Layers (Hexagonal / Ports & Adapters)
-
-```mermaid
-flowchart TB
-    subgraph User["User / CLI"]
-        CLI["CLI Entry"]
-        CR["Composition Root"]
-    end
-
-    subgraph Core["Domain Layer — zero external deps"]
-        LOOP["Agent Loop<br/>think → tool → observe"]
-        TYPES["Domain Types"]
-        CTX["Context Builder"]
-        REG["Tool Registry"]
-        TOOLS["Built-in Tools<br/>bash · file_ops · search · web"]
-    end
-
-    subgraph Ports["Port Layer — Protocols"]
-        P_LLM["LLM Provider"]
-        P_SBOX["Sandbox"]
-        P_MEM["Memory"]
-        P_SRCH["Web Search"]
-    end
-
-    subgraph Adapters["Adapter Layer — SDK implementations"]
-        A_LLM["OpenAI Adapter<br/>Anthropic Adapter"]
-        A_SBOX["Local Sandbox"]
-        A_MEM["File Memory"]
-        A_SRCH["Tavily Search"]
-    end
-
-    subgraph External["External Services"]
-        EXT_LLM["LLM APIs<br/>OpenAI · Groq · Gemini · Claude"]
-        EXT_FS["Filesystem"]
-    end
-
-    CLI --> CR
-    CR --> LOOP & REG & TOOLS
-    CR --> A_LLM & A_SBOX & A_MEM & A_SRCH
-
-    LOOP --> P_LLM & P_SBOX & P_MEM
-    LOOP --> CTX & REG
-    TOOLS --> REG
-    CTX --> TYPES
-
-    P_LLM -.->|implements| A_LLM
-    P_SBOX -.->|implements| A_SBOX
-    P_MEM -.->|implements| A_MEM
-    P_SRCH -.->|implements| A_SRCH
-
-    A_LLM -->|HTTP| EXT_LLM
-    A_SBOX -->|subprocess| EXT_FS
-    A_MEM -->|read/write| EXT_FS
-```
-
 ### Agent Loop
 
 ```mermaid
