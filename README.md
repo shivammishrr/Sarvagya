@@ -136,7 +136,7 @@ sequenceDiagram
     participant User
     participant CLI as main.py
     participant CR as core/__init__
-    participant Loop as AgentLoop
+    participant Agent as AgentLoop
     participant LLM as LLMProvider
     participant Tools as ToolRegistry
     participant Sbox as Sandbox
@@ -144,27 +144,26 @@ sequenceDiagram
     User->>CLI: sarvagya "task"
     CLI->>CR: run(task, model, api_key)
     CR->>CR: create Sandbox, Memory, Registry, LLM
-    CR->>Loop: AgentLoop(...).run(task)
+    CR->>Agent: AgentLoop(...).run(task)
 
-    Loop->>Loop: append user message
+    Agent->>Agent: append user message
     loop iteration (max 50)
-        Loop->>Loop: build_context()
-        Loop->>LLM: complete(messages, tools)
-        LLM-->>Loop: LLMResponse
+        Agent->>Agent: build_context()
+        Agent->>LLM: complete(messages, tools)
+        LLM-->>Agent: LLMResponse
 
         alt has tool_calls
-            Loop->>Tools: execute(name, args)
-            Tools->>Sbox: bash / read / etc
-            Sbox-->>Tools: result
-            Tools-->>Loop: ToolResult
-            Loop->>Loop: append to messages, continue
-        else has content
-            Loop-->>CR: AgentResult(output)
+        Agent->>Tools: execute(name, args)
+        Tools->>Sbox: bash / read / etc
+        Sbox-->>Tools: result
+        Tools-->>Agent: ToolResult
+        Agent->>Agent: append to messages, continue
+        Agent-->>CR: AgentResult(output)
             CR-->>CLI: result
             CLI-->>User: output
         end
     end
-    Loop-->>CR: AgentResult(error="max iterations")
+    Agent-->>CR: AgentResult(error="max iterations")
 ```
 
 ## Provider Detection
