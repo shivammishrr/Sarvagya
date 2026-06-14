@@ -1,6 +1,6 @@
 # Sarvagya
 
-Autonomous AI agent with hexagonal architecture. Zero coupling to LLM providers. ~1000 lines.
+Autonomous AI agent. Takes a task, uses an LLM to decide what to do, executes tools, returns results.
 
 ```bash
 pip install -e ".[all]"
@@ -12,7 +12,49 @@ sarvagya "List all Python files in this project"
 
 ## Architecture
 
-Sarvagya uses **hexagonal architecture (Ports & Adapters)**. The domain layer (`core/`) imports **zero external packages**. All SDK coupling lives in `adapters/`. Providers are swapped by changing the model name — no config, no code changes.
+**What it is:** An autonomous AI agent that receives a task from a user, uses an LLM to decide what actions to take, executes them via tools, observes results, and loops until it produces a final answer.
+
+```
+              ┌────────────────────────────────────────────────┐
+              │                  AGENT CORE                    │
+              │                                                │
+  User ──▶ CLI ──▶ Loop: think → tool → observe ──▶ Final answer
+              │            │        │                          │
+              └────────────┼────────┼──────────────────────────┘
+                           │        │
+              ┌────────────┼────────┼──────────────────┐
+              │            ▼        ▼                   │
+              │     ┌──────────┐ ┌───────────┐          │
+              │     │ LLM API  │ │ Sandbox   │          │
+              │     │ OpenAI   │ │ Filesystem│          │
+              │     │ Groq     │ │ Shell     │          │
+              │     │ Claude   │ │ Search    │          │
+              │     └──────────┘ └───────────┘          │
+              │            External Systems              │
+              └─────────────────────────────────────────┘
+```
+
+**Major components:**
+- **CLI** — accepts task prompt and flags
+- **Agent Core** — orchestration loop that decides what to do each turn
+- **LLM Interface** — talks to any provider (OpenAI-compatible, Anthropic)
+- **Sandbox** — runs shell commands, reads/writes files, searches code
+- **Memory** — stores information in markdown files
+- **Web Search** — optional Tavily integration for real-time info
+
+**How data flows:** User task → CLI → Core asks LLM → LLM picks a tool → Tool executes → Result feeds back → Core decides next step → Repeats until done → Final answer to user.
+
+**External dependencies:** LLM APIs (OpenAI, Groq, Gemini, Claude), local filesystem, Tavily Search API (optional).
+
+**Tech stack:** Python 3.13, OpenAI SDK, Anthropic SDK, hexagonal architecture pattern, markdown files for memory.
+
+---
+
+## Implementation Details
+
+### Hexagonal Layer Structure
+
+The domain layer (`core/`) imports **zero external packages**. All SDK coupling lives in `adapters/`. Providers are swapped by changing the model name — no config, no code changes.
 
 ```mermaid
 flowchart TB
@@ -72,7 +114,7 @@ flowchart TB
     A_MEM -->|read/write| EXT_FS
 ```
 
-## Agent Loop
+### Agent Loop
 
 One action per iteration — think, call one tool, observe, repeat.
 
@@ -98,7 +140,7 @@ flowchart TD
     SUCCESS --> DONE
 ```
 
-## File Structure
+### File Structure
 
 ```
 sarvagya/
@@ -134,7 +176,7 @@ sarvagya/
         └── tavily.py          Tavily web search (18 lines)
 ```
 
-## Data Flow
+### Data Flow
 
 ```mermaid
 sequenceDiagram
@@ -171,7 +213,7 @@ sequenceDiagram
     Agent-->>CR: AgentResult(error="max iterations")
 ```
 
-## Domain Types
+### Domain Types
 
 All types are `@dataclass` classes in `core/types.py` (62 lines).
 
@@ -225,7 +267,7 @@ classDiagram
     Message --> ToolCall
 ```
 
-## Tools Reference
+### Tools Reference
 
 | Tool | Handler | Parameters | Required |
 |------|---------|------------|----------|
@@ -239,6 +281,8 @@ classDiagram
 | **websearch** | `tavily.search()` | query | query |
 
 `websearch` is only available if `TAVILY_API_KEY` is set.
+
+---
 
 ## Design Decisions
 
@@ -288,4 +332,3 @@ pip install -e ".[anthropic]"   # Anthropic only
 | Adapters | 5 |
 | Protocols | 4 |
 | Tools | 8 |
-
