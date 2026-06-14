@@ -1,0 +1,29 @@
+[project]
+name = "sarvagya"
+version = "0.1.0"
+description = "Autonomous AI agent with provider-agnostic architecture"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.30.0"]
+search = ["tavily-python>=0.7.0"]
+all = ["sarvagya[openai,anthropic,search]"]
+
+[project.scripts]
+sarvagya = "sarvagya.main:main"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+ignore_missing_imports = true
