@@ -1,64 +1,31 @@
-from sarvagya.core.context import (
-    build_dynamic_section,
-    build_system_prompt,
-    build_tool_section,
-    format_messages,
-    truncate_messages,
-)
-from sarvagya.core.types import (
-    AgentResult,
-    LLMResponse,
-    Message,
-    ToolCall,
-    ToolResult,
-)
-from sarvagya.ports.llm import LLMProvider
-from sarvagya.ports.memory import Memory
-from sarvagya.ports.sandbox import Sandbox
+from sarvagya.core.context import build_context, truncate_messages
+from sarvagya.core.types import AgentResult, Message, ToolResult
 
 
 class AgentLoop:
-    def __init__(
-        self,
-        llm: LLMProvider,
-        sandbox: Sandbox,
-        memory: Memory,
-        tools,
-        workdir: str,
-    ):
+    def __init__(self, llm, sandbox, memory, tools, workdir: str):
         self._llm = llm
         self._sandbox = sandbox
         self._memory = memory
         self._tools = tools
         self._workdir = workdir
         self._messages: list[Message] = []
-        self._system_prompt = build_system_prompt()
 
-    def run(
-        self,
-        task: str,
-        max_iterations: int = 50,
-    ) -> AgentResult:
+    def run(self, task: str, max_iterations: int = 50) -> AgentResult:
         self._messages.append(Message(role="user", content=task))
 
-        for iteration in range(max_iterations):
-            dynamic = build_dynamic_section(
-                workdir=self._workdir,
-                memory_index=self._get_memory_index(),
-                iteration=iteration + 1,
-                max_iterations=max_iterations,
-            )
-            tool_section = build_tool_section(self._tools.tool_defs())
-            formatted = format_messages(
+        for i in range(max_iterations):
+            context = build_context(
                 messages=truncate_messages(self._messages),
-                system_prompt=self._system_prompt,
-                dynamic_section=dynamic,
-                tool_section=tool_section,
-                schemas=self._tools.schemas(),
+                tool_defs=self._tools.tool_defs(),
+                workdir=self._workdir,
+                iteration=i + 1,
+                max_iterations=max_iterations,
+                memory_index=self._get_memory_index(),
             )
 
             try:
-                response: LLMResponse = self._llm.complete(
+                response = self._llm.complete(
                     messages=[
                         Message(
                             role=m["role"],
@@ -66,30 +33,21 @@ class AgentLoop:
                             tool_call_id=m.get("tool_call_id"),
                             name=m.get("name"),
                         )
-                        for m in formatted
+                        for m in context
                     ],
                     tools=self._tools.tool_defs(),
                 )
             except Exception as e:
                 return AgentResult(
-                    success=False,
-                    output="",
-                    iterations=iteration + 1,
-                    error=str(e),
+                    success=False, output="", iterations=i + 1, error=str(e)
                 )
 
             if response.tool_calls:
                 for tc in response.tool_calls:
                     self._messages.append(
-                        Message(
-                            role="assistant",
-                            content="",
-                            name=tc.name,
-                        )
+                        Message(role="assistant", content="", name=tc.name)
                     )
-                    result: ToolResult = self._tools.execute(
-                        tc.name, tc.arguments
-                    )
+                    result: ToolResult = self._tools.execute(tc.name, tc.arguments)
                     self._messages.append(
                         Message(
                             role="tool",
@@ -102,7 +60,7 @@ class AgentLoop:
                 return AgentResult(
                     success=True,
                     output=response.content,
-                    iterations=iteration + 1,
+                    iterations=i + 1,
                 )
 
         return AgentResult(

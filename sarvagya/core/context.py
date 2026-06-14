@@ -1,59 +1,46 @@
 import json
-import os
+from pathlib import Path
 
 from sarvagya.core.types import Message, ToolDef
 
 
-def build_system_prompt() -> str:
-    return """You are Sarvagya, an autonomous AI agent operating in a sandboxed environment.
-You complete tasks by: thinking → calling a tool → observing the result → repeating.
-
-RULES:
-- One action per iteration. Call ONE tool, observe, then decide next.
-- Never call multiple tools in a single turn.
-- Prefer dedicated tools (Read/Write/Edit/Glob/Grep) over bash for file operations.
-- Read before edit. Never edit code you haven't read.
-- Reference code as file:line_number when discussing.
-- Be concise. No emojis. Short responses.
-- Write important findings to notes.md before they leave context.
-- When stuck, try 3 different approaches before giving up.
-- Never expose secrets or API keys in your output.
-- Framework-agnostic: you interact through tools, not direct SDKs."""
+_PROMPT_CACHE: str | None = None
 
 
-def build_dynamic_section(
+def _load_system_prompt() -> str:
+    global _PROMPT_CACHE
+    if _PROMPT_CACHE is not None:
+        return _PROMPT_CACHE
+    prompt_path = Path(__file__).parent.parent / "prompts" / "system.md"
+    if prompt_path.exists():
+        _PROMPT_CACHE = prompt_path.read_text(encoding="utf-8")
+    else:
+        _PROMPT_CACHE = ""
+    return _PROMPT_CACHE
+
+
+def build_context(
+    messages: list[Message],
+    tool_defs: list[ToolDef],
     workdir: str,
-    memory_index: str = "",
     iteration: int = 1,
     max_iterations: int = 50,
-) -> str:
-    lines = [
-        f"Working directory: {workdir}",
-        f"Iteration: {iteration}/{max_iterations}",
-        "",
-    ]
-    if memory_index:
-        lines.append(f"Memory index:\n{memory_index}")
-    return "\n".join(lines)
-
-
-def build_tool_section(tools: list[ToolDef]) -> str:
-    lines: list[str] = []
-    for t in tools:
-        params_str = json.dumps(t.parameters, indent=2)
-        lines.append(f"- {t.name}: {t.description}")
-        lines.append(f"  Parameters: {params_str}")
-    return "\n".join(lines)
-
-
-def format_messages(
-    messages: list[Message],
-    system_prompt: str,
-    dynamic_section: str,
-    tool_section: str,
-    schemas: list[dict],
+    memory_index: str = "",
 ) -> list[dict]:
-    system = f"{system_prompt}\n\n{dynamic_section}\n\nAVAILABLE TOOLS:\n{tool_section}"
+    system = _load_system_prompt()
+    system += (
+        f"\n\n## Session\n"
+        f"- Working directory: {workdir}\n"
+        f"- Iteration: {iteration}/{max_iterations}\n"
+    )
+    if memory_index:
+        system += f"\n{memory_index}\n"
+
+    if tool_defs:
+        system += "\n## Available Tools\n"
+        for t in tool_defs:
+            params = json.dumps(t.parameters, indent=2)
+            system += f"- **{t.name}**: {t.description}\n  `{params}`\n"
 
     result: list[dict] = [{"role": "system", "content": system}]
     for m in messages:
@@ -66,9 +53,7 @@ def format_messages(
     return result
 
 
-def truncate_messages(
-    messages: list[Message], max_turns: int = 20
-) -> list[Message]:
+def truncate_messages(messages: list[Message], max_turns: int = 20) -> list[Message]:
     if len(messages) <= max_turns:
         return messages
     return messages[-max_turns:]
