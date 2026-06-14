@@ -1,6 +1,6 @@
 # Sarvagya
 
-Autonomous AI agent. Takes a task, uses an LLM to decide what to do, executes tools, returns results.
+Autonomous AI agent. Takes a task, uses an LLM to decide actions, executes them, returns results. ~1000 lines.
 
 ```bash
 pip install -e ".[all]"
@@ -12,85 +12,63 @@ sarvagya "List all Python files in this project"
 
 ## Architecture
 
-**What it is:** An autonomous AI agent that receives a task from a user, uses an LLM to decide what actions to take, executes them via tools, observes results, and loops until it produces a final answer.
+An autonomous AI agent that takes a task, uses an LLM to decide what actions to take, executes them, and returns results.
 
 ```
-              ┌────────────────────────────────────────────────┐
-              │                  AGENT CORE                    │
-              │                                                │
-  User ──▶ CLI ──▶ Loop: think → tool → observe ──▶ Final answer
-              │            │        │                          │
-              └────────────┼────────┼──────────────────────────┘
-                           │        │
-              ┌────────────┼────────┼──────────────────┐
-              │            ▼        ▼                   │
-              │     ┌──────────┐ ┌───────────┐          │
-              │     │ LLM API  │ │ Sandbox   │          │
-              │     │ OpenAI   │ │ Filesystem│          │
-              │     │ Groq     │ │ Shell     │          │
-              │     │ Claude   │ │ Search    │          │
-              │     └──────────┘ └───────────┘          │
-              │            External Systems              │
-              └─────────────────────────────────────────┘
+User → CLI → Core (think → tool → observe → repeat) → LLM / Filesystem / Search → Final answer
 ```
 
 **Major components:**
-- **CLI** — accepts task prompt and flags
-- **Agent Core** — orchestration loop that decides what to do each turn
-- **LLM Interface** — talks to any provider (OpenAI-compatible, Anthropic)
-- **Sandbox** — runs shell commands, reads/writes files, searches code
-- **Memory** — stores information in markdown files
+- **CLI** — accepts task + flags
+- **Agent Core** — orchestration loop (think → tool → observe → repeat)
+- **LLM** — provider that decides which tool to call (OpenAI, Groq, Anthropic, etc.)
+- **Sandbox** — executes shell commands on your machine
+- **Memory** — stores notes in markdown files
 - **Web Search** — optional Tavily integration for real-time info
 
-**How data flows:** User task → CLI → Core asks LLM → LLM picks a tool → Tool executes → Result feeds back → Core decides next step → Repeats until done → Final answer to user.
+**How they talk:** CLI delivers the task → Core asks LLM what to do → Core runs the chosen tool → Result goes back to Core → Core asks LLM again → Repeat until LLM gives a final answer → Answer returned to user
 
-**External dependencies:** LLM APIs (OpenAI, Groq, Gemini, Claude), local filesystem, Tavily Search API (optional).
+**External dependencies:**
+- LLM APIs (OpenAI-compatible, Anthropic Claude)
+- Local filesystem (command execution, file read/write)
+- Tavily Search API (optional)
 
-**Tech stack:** Python 3.13, OpenAI SDK, Anthropic SDK, hexagonal architecture pattern, markdown files for memory.
-
----
+**Tech stack:** Python 3.13 · OpenAI SDK · Anthropic SDK · hexagonal pattern · markdown files for memory
 
 ## Implementation Details
 
-### Hexagonal Layer Structure
-
-The domain layer (`core/`) imports **zero external packages**. All SDK coupling lives in `adapters/`. Providers are swapped by changing the model name — no config, no code changes.
+### Architecture Layers (Hexagonal / Ports & Adapters)
 
 ```mermaid
 flowchart TB
     subgraph User["User / CLI"]
-        direction LR
-        CLI["CLI Entry<br/>argparse"]
-        CR["Composition Root<br/>Dependency Injection"]
+        CLI["CLI Entry"]
+        CR["Composition Root"]
     end
 
-    subgraph Domain["Domain Layer — zero external deps"]
-        direction TB
+    subgraph Core["Domain Layer — zero external deps"]
         LOOP["Agent Loop<br/>think → tool → observe"]
-        TYPES["Domain Types<br/>Message · ToolDef · ToolCall · etc"]
-        CTX["Context Builder<br/>system prompt + tool schemas"]
-        REG["Tool Registry<br/>register · schema · dispatch"]
+        TYPES["Domain Types"]
+        CTX["Context Builder"]
+        REG["Tool Registry"]
         TOOLS["Built-in Tools<br/>bash · file_ops · search · web"]
     end
 
     subgraph Ports["Port Layer — Protocols"]
-        direction TB
-        P_LLM["LLM Provider<br/>complete()"]
-        P_SBOX["Sandbox<br/>execute · read · write"]
-        P_MEM["Memory<br/>save · load · list"]
-        P_SRCH["Web Search<br/>search()"]
+        P_LLM["LLM Provider"]
+        P_SBOX["Sandbox"]
+        P_MEM["Memory"]
+        P_SRCH["Web Search"]
     end
 
     subgraph Adapters["Adapter Layer — SDK implementations"]
-        direction TB
-        A_LLM["OpenAI Adapter<br/>OpenAI SDK<br/>Anthropic Adapter<br/>Anthropic SDK"]
-        A_SBOX["Local Sandbox<br/>subprocess"]
-        A_MEM["File Memory<br/>markdown + frontmatter"]
-        A_SRCH["Tavily Search<br/>tavily-python"]
+        A_LLM["OpenAI Adapter<br/>Anthropic Adapter"]
+        A_SBOX["Local Sandbox"]
+        A_MEM["File Memory"]
+        A_SRCH["Tavily Search"]
     end
 
     subgraph External["External Services"]
-        direction LR
         EXT_LLM["LLM APIs<br/>OpenAI · Groq · Gemini · Claude"]
         EXT_FS["Filesystem"]
     end
@@ -116,26 +94,17 @@ flowchart TB
 
 ### Agent Loop
 
-One action per iteration — think, call one tool, observe, repeat.
-
 ```mermaid
 flowchart TD
     START(["run(task)"]) --> APPEND["append user message"]
     APPEND --> STEP{"_step()"}
-
-    STEP --> BUILD["build_context()<br/>system + session + tools + messages"]
-    BUILD --> LLM_CALL["_call_llm()<br/>LLMProvider.complete()"]
+    STEP --> BUILD["build_context()"]
+    BUILD --> LLM_CALL["LLM.complete()"]
     LLM_CALL --> CHECK{"response"}
-
-    CHECK -->|"exception"| FAIL["return AgentResult(error)"]
-    CHECK -->|"tool_calls"| EXEC["_handle_response()"]
-    CHECK -->|"content"| SUCCESS["return AgentResult(output)"]
-
-    EXEC --> ASM["append assistant message<br/>with tool_calls"]
-    ASM --> DISPATCH["for each call:<br/>ToolRegistry.execute(name, args)"]
-    DISPATCH --> RESULT["append tool result<br/>(truncated 10k chars)"]
-    RESULT --> STEP
-
+    CHECK -->|"exception"| FAIL["return error"]
+    CHECK -->|"tool_calls"| EXEC["for each:<br/>ToolRegistry.execute()"]
+    CHECK -->|"content"| SUCCESS["return final answer"]
+    EXEC --> STEP
     FAIL --> DONE
     SUCCESS --> DONE
 ```
@@ -144,36 +113,35 @@ flowchart TD
 
 ```
 sarvagya/
-├── main.py                    CLI entry + DI container (36 lines)
+├── main.py                    CLI entry + DI
 ├── prompts/
-│   └── system.md              Agent identity & rules (markdown)
-├── core/                      Domain — zero external dependencies
-│   ├── __init__.py            Composition root (60 lines)
-│   ├── types.py               8 dataclasses (62 lines)
-│   ├── loop.py                AgentLoop — think/tool/observe (76 lines)
-│   ├── context.py             System prompt + message assembly (49 lines)
-│   ├── tool_registry.py       Register, schema, dispatch (45 lines)
+│   └── system.md              Agent identity & rules
+├── core/                      Zero external dependencies
+│   ├── __init__.py            Composition root
+│   ├── types.py               8 dataclasses
+│   ├── loop.py                AgentLoop
+│   ├── context.py             Prompt assembly
+│   ├── tool_registry.py       Register + dispatch
 │   └── tools/
-│       ├── __init__.py        init_tools() (18 lines)
-│       ├── bash.py            Shell execution (39 lines)
-│       ├── file_ops.py        Read/write/edit (93 lines)
-│       ├── search_ops.py      Glob/grep (56 lines)
-│       └── web.py             Web fetch (31 lines)
-├── ports/                     Protocols — pure Python, no deps
-│   ├── llm.py                 LLMProvider (12 lines)
-│   ├── sandbox.py             Sandbox (19 lines)
-│   ├── memory.py              Memory (19 lines)
-│   └── search.py              WebSearch (6 lines)
-└── adapters/                  SDK implementations — one file per provider
+│       ├── bash.py            Shell execution
+│       ├── file_ops.py        Read/write/edit
+│       ├── search_ops.py      Glob/grep
+│       └── web.py             Web fetch
+├── ports/                     Protocols only
+│   ├── llm.py                 LLMProvider
+│   ├── sandbox.py             Sandbox
+│   ├── memory.py              Memory
+│   └── search.py              WebSearch
+└── adapters/                  SDK implementations
     ├── llm/
-    │   ├── openai.py          OpenAI / Groq / Gemini (63 lines)
-    │   └── anthropic.py       Anthropic Claude (79 lines)
+    │   ├── openai.py          OpenAI/Groq/Gemini
+    │   └── anthropic.py       Anthropic Claude
     ├── sandbox/
-    │   └── local.py           Subprocess sandbox (47 lines)
+    │   └── local.py           Subprocess
     ├── memory/
-    │   └── filesystem.py      Markdown with YAML frontmatter (64 lines)
+    │   └── filesystem.py      Markdown files
     └── search/
-        └── tavily.py          Tavily web search (18 lines)
+        └── tavily.py          Tavily search
 ```
 
 ### Data Flow
@@ -181,41 +149,38 @@ sarvagya/
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLI as main.py
+    participant CLI
     participant CR as core/__init__
     participant Agent as AgentLoop
-    participant LLM as LLMProvider
+    participant LLM
     participant Tools as ToolRegistry
     participant Sbox as Sandbox
 
     User->>CLI: sarvagya "task"
-    CLI->>CR: run(task, model, api_key)
-    CR->>CR: create Sandbox, Memory, Registry, LLM
+    CLI->>CR: run(task)
+    CR->>CR: create dependencies
     CR->>Agent: AgentLoop(...).run(task)
-
     Agent->>Agent: append user message
     loop iteration (max 50)
         Agent->>Agent: build_context()
         Agent->>LLM: complete(messages, tools)
-        LLM-->>Agent: LLMResponse
-
+        LLM-->>Agent: response
         alt has tool_calls
-        Agent->>Tools: execute(name, args)
-        Tools->>Sbox: bash / read / etc
-        Sbox-->>Tools: result
-        Tools-->>Agent: ToolResult
-        Agent->>Agent: append to messages, continue
-        Agent-->>CR: AgentResult(output)
-            CR-->>CLI: result
-            CLI-->>User: output
+            Agent->>Tools: execute(name, args)
+            Tools->>Sbox: run command
+            Sbox-->>Tools: result
+            Tools-->>Agent: ToolResult
+            Agent->>Agent: append result
+        else has content
+            Agent-->>CR: final answer
+            CR-->>CLI: output
+            CLI-->>User: result
         end
     end
-    Agent-->>CR: AgentResult(error="max iterations")
+    Agent-->>CR: max iterations error
 ```
 
 ### Domain Types
-
-All types are `@dataclass` classes in `core/types.py` (62 lines).
 
 ```mermaid
 classDiagram
@@ -280,37 +245,29 @@ classDiagram
 | **webfetch** | `handle_webfetch()` | url | url |
 | **websearch** | `tavily.search()` | query | query |
 
-`websearch` is only available if `TAVILY_API_KEY` is set.
-
----
+`websearch` only available if `TAVILY_API_KEY` is set.
 
 ## Design Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
 | Architecture | Hexagonal (Ports & Adapters) | Zero coupling to any LLM provider |
-| Core deps | **Zero external** | `core/` imports only stdlib + local modules |
-| Provider detection | Model name heuristic | Swap providers by changing `--model`, not code or config |
-| Provider auth | Single `API_KEY` env var | No per-provider key management |
-| Sandbox | Local subprocess | Replaceable with E2B cloud sandbox as an adapter |
-| Memory | Filesystem markdown | No database needed. Proven pattern (LangManus). |
-| Agent loop | Sync, one tool per iteration | Simple, observable, debuggable |
-| Prompts | Markdown files | Editable without touching code |
-| Every function | ≤30 lines | Enforced by AST check |
+| Core deps | **Zero external** | `core/` imports only stdlib |
+| Provider detection | Model name heuristic | Swap by changing `--model` |
+| Provider auth | Single `API_KEY` | One env var for any provider |
+| Sandbox | Local subprocess | Replaceable with cloud sandbox |
+| Memory | Filesystem markdown | No database needed |
+| Agent loop | Sync, one tool per iteration | Simple, observable |
+| Prompts | Markdown files | Editable without code changes |
+| Functions | ≤30 lines | Enforced by AST check |
 
 ## Auth
 
-Set a single `API_KEY` env var (or pass `--api-key`):
-
 ```bash
-# OpenAI / Groq / any OpenAI-compatible
 set API_KEY=sk-...   set MODEL=gpt-4o
 set OPENAI_BASE_URL=https://api.groq.com/openai/v1   # if needed
 
-# Anthropic
-set API_KEY=sk-ant-...   set MODEL=claude-sonnet-4-20250514
-
-# Or pass inline
+# or inline
 sarvagya "task" --model gpt-4o --api-key sk-...
 ```
 
