@@ -289,6 +289,3 @@ pip install -e ".[anthropic]"   # Anthropic only
 | Protocols | 4 |
 | Tools | 8 |
 
-## License
-
-MIT
