@@ -1,6 +1,5 @@
 import os
 
-from sarvagya.core.types import AgentResult
 from sarvagya.adapters.llm.openai import OpenAIAdapter
 from sarvagya.adapters.memory.filesystem import FileMemory
 from sarvagya.adapters.sandbox.local import LocalSandbox
@@ -8,29 +7,16 @@ from sarvagya.adapters.search.tavily import TavilySearch
 from sarvagya.core.loop import AgentLoop
 from sarvagya.core.tool_registry import ToolRegistry
 from sarvagya.core.tools import init_tools
-from sarvagya.core.types import ToolResult
+from sarvagya.core.types import AgentResult, ToolDef, ToolResult
 
 
-def _make_llm(provider: str, model: str | None, api_key: str | None):
-    api_key = api_key or os.environ.get("LLM_API_KEY") or ""
-    models = {
-        "openai": "meta-llama/llama-4-scout-17b-16e-instruct",
-        "anthropic": "claude-sonnet-4-20250514",
-    }
-    model = model or models.get(provider, models["openai"])
-
-    if provider == "anthropic":
+def _make_llm(model: str, api_key: str | None):
+    api_key = api_key or os.environ.get("API_KEY") or ""
+    model_lower = model.lower()
+    if "claude" in model_lower or "anthropic" in model_lower:
         from sarvagya.adapters.llm.anthropic import AnthropicAdapter
-
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        return AnthropicAdapter(api_key=key, model=model)
-
-    groq_key = os.environ.get("GROQ_API_KEY", "")
-    base_url = None
-    if groq_key and not api_key:
-        api_key = groq_key
-        base_url = "https://api.groq.com/openai/v1"
-    return OpenAIAdapter(api_key=api_key, model=model, base_url=base_url)
+        return AnthropicAdapter(api_key=api_key, model=model)
+    return OpenAIAdapter(api_key=api_key, model=model)
 
 
 def _register_websearch(registry: ToolRegistry):
@@ -38,28 +24,19 @@ def _register_websearch(registry: ToolRegistry):
     if not tavily_key:
         return
     tavily = TavilySearch(api_key=tavily_key)
-    from sarvagya.core.types import ToolDef
 
     registry.register(
         ToolDef(
             name="websearch",
             description="Search the web using Tavily. Returns relevant results with titles, URLs and content snippets.",
-            parameters={
-                "query": {
-                    "type": "string",
-                    "description": "The search query",
-                },
-            },
+            parameters={"query": {"type": "string", "description": "The search query"}},
             required=["query"],
         ),
-        handler=lambda args: ToolResult(
-            success=True,
-            output=tavily.search(args["query"]),
-        ),
+        handler=lambda args: ToolResult(success=True, output=tavily.search(args["query"])),
     )
 
 
-def run(task: str, workdir: str | None = None, provider: str = "openai",
+def run(task: str, workdir: str | None = None,
         model: str | None = None, api_key: str | None = None,
         max_iterations: int = 50) -> AgentResult:
     sandbox = LocalSandbox(workdir=workdir)
@@ -70,7 +47,14 @@ def run(task: str, workdir: str | None = None, provider: str = "openai",
     init_tools(registry, sandbox.workdir, sandbox)
     _register_websearch(registry)
 
-    llm = _make_llm(provider, model, api_key)
+    if not model:
+        model = os.environ.get("MODEL", "")
+    if not model:
+        return AgentResult(success=False, output="", error="No model specified. Set MODEL env var or pass --model")
+    if not api_key:
+        return AgentResult(success=False, output="", error="No API key specified. Set API_KEY env var or pass --api-key")
+
+    llm = _make_llm(model, api_key)
     loop = AgentLoop(llm=llm, sandbox=sandbox, memory=memory,
                      tools=registry, workdir=sandbox.workdir)
     return loop.run(task=task, max_iterations=max_iterations)

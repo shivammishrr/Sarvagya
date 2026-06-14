@@ -1,220 +1,90 @@
 # Sarvagya Architecture
 
-Autonomous AI agent. One loop, one action per iteration, filesystem as memory, provider-agnostic.
+Autonomous AI agent with hexagonal architecture. Zero coupling to LLM providers, ~1000 lines total.
 
-## Hexagonal Architecture (Ports & Adapters)
+## Interactive Architecture Diagram
 
-```mermaid
-flowchart TD
-    subgraph main["main.py (Composition Root)"]
-        DI[Dependency Injection]
-    end
+Open **[docs/architecture.html](docs/architecture.html)** in a browser for a full interactive visualization.
 
-    subgraph core["core/ - Domain"]
-        LOOP[AgentLoop]
-        TYPES[Domain Types]
-        TOOLS[ToolRegistry]
-        CTX[Prompt Assembly]
-    end
+## Provider Detection
 
-    subgraph ports["ports/ - Interfaces (Protocols)"]
-        LLMP[LLMProvider]
-        SANDP[Sandbox]
-        MEMP[Memory]
-    end
+Provider is auto-detected from the model name — no config needed:
 
-    subgraph adapters["adapters/ - Implementations"]
-        OA[OpenAIAdapter]
-        AA[AnthropicAdapter]
-        LS[LocalSandbox]
-        FM[FileMemory]
-        TV[TavilySearch]
-    end
+| Model pattern | Adapter | SDK |
+|--------------|---------|-----|
+| `claude-*` / `anthropic-*` | `AnthropicAdapter` | `anthropic` |
+| Everything else | `OpenAIAdapter` | `openai` |
 
-    subgraph external["External Services"]
-        GROQ[Groq API<br/>OpenAI-compatible]
-        CLAUDE[Anthropic Claude]
-        FS[Filesystem]
-    end
+Set `OPENAI_BASE_URL` env var for non-default OpenAI-compatible endpoints (Groq, Gemini, etc.).
 
-    DI --> LOOP
-    DI --> OA
-    DI --> AA
-    DI --> LS
-    DI --> FM
-    DI --> TV
+## Quick Reference
 
-    LOOP -- uses --> LLMP
-    LOOP -- uses --> SANDP
-    LOOP -- uses --> MEMP
-
-    LLMP -.-> OA
-    LLMP -.-> AA
-    SANDP -.-> LS
-    MEMP -.-> FM
-
-    OA -- HTTP --> GROQ
-    AA -- HTTP --> CLAUDE
-    LS -- subprocess --> FS
-    FM -- read/write --> FS
+```
+sarvagya/
+├── main.py              CLI entry → core.run()
+├── prompts/system.md    Agent identity & rules
+├── core/                Zero external dependencies
+│   ├── types.py         8 dataclasses (ToolCall, Message, LLMResponse, ...)
+│   ├── loop.py          AgentLoop (run → _step → _call_llm → _handle_response)
+│   ├── context.py       Prompt assembly + message truncation
+│   ├── tool_registry.py Register / schema / dispatch
+│   └── tools/           bash, file_ops, search_ops, web
+├── ports/               Pure Protocols (no implementations)
+└── adapters/            SDK implementations (one file per provider)
+    ├── llm/             OpenAIAdapter, AnthropicAdapter
+    ├── sandbox/         LocalSandbox (subprocess)
+    ├── memory/          FileMemory (markdown + YAML frontmatter)
+    └── search/          TavilySearch (conditional)
 ```
 
-## Data Flow
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant M as main.py
-    participant L as AgentLoop
-    participant P as LLMProvider
-    participant T as ToolRegistry
-    participant S as Sandbox
-
-    U->>M: task prompt
-    M->>L: run(task)
-    loop each iteration
-        L->>P: complete(messages, tools)
-        P-->>L: LLMResponse (content | tool_calls)
-        alt has tool_calls
-            L->>T: execute(name, args)
-            T->>S: run command / read file / etc
-            S-->>T: result
-            T-->>L: ToolResult
-            L->>L: append to context
-        else has content
-            L-->>M: final answer
-            M-->>U: response
-        end
-    end
-```
-
-## Provider Abstraction
-
-```mermaid
-classDiagram
-    class LLMProvider {
-        <<Protocol>>
-        +complete(messages, tools) LLMResponse
-        +stream(messages, tools) Iterator~LLMChunk~
-    }
-
-    class OpenAIAdapter {
-        -client: OpenAI
-        +complete(messages, tools) LLMResponse
-        +stream(messages, tools) Iterator~LLMChunk~
-    }
-
-    class AnthropicAdapter {
-        -client: Anthropic
-        +complete(messages, tools) LLMResponse
-        +stream(messages, tools) Iterator~LLMChunk~
-    }
-
-    class AgentLoop {
-        -llm: LLMProvider
-        -sandbox: Sandbox
-        -memory: Memory
-        -tools: ToolRegistry
-        +run(task, max_iterations) AgentResult
-    }
-
-    LLMProvider <|.. OpenAIAdapter : implements
-    LLMProvider <|.. AnthropicAdapter : implements
-    AgentLoop --> LLMProvider : depends on abstraction
-```
-
-## Domain Types
-
-```mermaid
-classDiagram
-    class Message {
-        +role: str
-        +content: str
-        +tool_call_id: str | None
-        +name: str | None
-    }
-
-    class ToolDef {
-        +name: str
-        +description: str
-        +parameters: dict
-        +required: list~str~
-    }
-
-    class ToolCall {
-        +id: str
-        +name: str
-        +arguments: dict
-    }
-
-    class LLMResponse {
-        +content: str
-        +tool_calls: list~ToolCall~ | None
-        +stop_reason: str
-    }
-
-    class ToolResult {
-        +success: bool
-        +output: str
-        +error: str | None
-    }
-
-    LLMResponse --> ToolCall : contains
-```
-
-## Design Decisions
+## Key Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Architecture | Hexagonal (Ports & Adapters) | Zero coupling to LLM providers |
-| Language | Python 3.13+ | Latest typing, pattern matching, dataclasses |
-| LLM Abstraction | Protocol with adapters | Swap OpenAI/Anthropic/Groq via config |
-| Sandbox | Local subprocess + Cloud (future) | Start local, add E2B later |
-| Memory | Filesystem (markdown) | Proven pattern, no DB needed |
-| Package Manager | uv | Fast, modern Python packaging |
-| Linting | ruff | Fast, replaces flake8 + isort |
-| Typing | mypy --strict | Bug prevention at compile time |
+| Core deps | Zero external | `core/` imports only stdlib + local |
+| Provider detection | Model name heuristic | Swap providers by changing `--model`, not code |
+| Sandbox | Local subprocess | Replace with E2B cloud sandbox as optional adapter |
+| Memory | Filesystem markdown | No DB needed. Proven pattern from LangManus. |
+| Agent loop | Sync, one action per iteration | Simple, observable, debuggable |
+| Tool result truncation | 10,000 chars | Prevents context overflow |
+| Message window | Last 20 turns | Sliding window context management |
 
-## File Structure
+## Agent Loop Flow
 
 ```
-sarvagya/
-  __init__.py
-  main.py                  # Composition root
-  core/
-    __init__.py
-    types.py               # Shared domain types
-    loop.py                # Agent loop (framework-agnostic)
-    tools.py               # Tool registry
-    context.py             # Prompt assembly
-  ports/
-    __init__.py
-    llm.py                 # LLMProvider protocol
-    sandbox.py             # Sandbox protocol
-    memory.py              # Memory protocol
-    search.py              # WebSearch protocol
-  adapters/
-    __init__.py
-    llm/
-      __init__.py
-      openai.py            # OpenAI/Groq adapter (OpenAI-compatible)
-      anthropic.py         # Anthropic adapter
-    sandbox/
-      __init__.py
-      local.py             # Local subprocess sandbox
-    memory/
-      __init__.py
-      filesystem.py        # Filesystem memory
-    search/
-      __init__.py
-      tavily.py            # Tavily web search
+run(task)
+  → append user message
+  → for _ in range(max_iterations=50):
+      → build_context(system + session + tools + messages)
+      → LLM.complete() → LLMResponse
+      → if tool_calls:
+          → append assistant message (with tool_calls)
+          → for each call: ToolRegistry.execute(name, args)
+          → append tool result (truncated to 10k chars)
+          → continue loop
+      → if content:
+          → return AgentResult(success=True, output=content)
+  → return AgentResult(success=False, error="max iterations")
 ```
 
-## Rules
+## Layer Rules
 
 1. **`core/` imports ZERO external packages.** Only stdlib + local modules.
 2. **`ports/` defines only Protocols.** No implementations, no third-party imports.
 3. **`adapters/` is the ONLY layer that imports SDKs.** One file per provider.
-4. **`main.py` is the ONLY composition root.** Adapters are wired to ports here.
-5. **One action per iteration.** Agent calls ONE tool, observes result, repeats.
-6. **Filesystem as context.** Session data lives in files, not in-memory.
+4. **`main.py` / `core/__init__.py`** is the only composition root.
+5. Every function ≤30 lines (enforced by AST check).
+
+## Tools
+
+| Tool | Handler | Parameters | Required |
+|------|---------|------------|----------|
+| bash | `sandbox.execute()` | command, timeout, description | command, description |
+| read | `_read()` | file_path, offset, limit | file_path |
+| write | `_write()` | file_path, content | file_path, content |
+| edit | `_edit()` | file_path, old_string, new_string, replace_all | file_path, old_string, new_string |
+| glob | `handle_glob()` | pattern, path | pattern |
+| grep | `handle_grep()` | pattern, path, include | pattern |
+| webfetch | `handle_webfetch()` | url | url |
+| websearch | `tavily.search()` | query | query |

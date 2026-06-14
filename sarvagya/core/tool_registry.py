@@ -1,3 +1,5 @@
+import json
+
 from sarvagya.core.types import ToolDef, ToolResult
 
 
@@ -31,12 +33,12 @@ class ToolRegistry:
     def tool_defs(self) -> list[ToolDef]:
         return list(self._tools)
 
-    def execute(self, name: str, args: dict) -> ToolResult:
+    def execute(self, name: str, args: dict | str) -> ToolResult:
         handler = self._handlers.get(name)
         if not handler:
-            return ToolResult(
-                success=False, output="", error=f"Unknown tool: {name}"
-            )
+            return ToolResult(success=False, output="", error=f"Unknown tool: {name}")
+        if isinstance(args, str):
+            args = json.loads(args)
         try:
             return handler(args)
         except Exception as e:

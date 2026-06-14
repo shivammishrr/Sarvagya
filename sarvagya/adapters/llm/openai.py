@@ -1,9 +1,8 @@
-from collections.abc import Iterator
+import json
 
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
 
-from sarvagya.core.types import LLMChunk, LLMResponse, Message, ToolCall, ToolDef
+from sarvagya.core.types import LLMResponse, Message, ToolCall, ToolDef
 
 
 class OpenAIAdapter:
@@ -23,6 +22,12 @@ class OpenAIAdapter:
                 d["tool_call_id"] = m.tool_call_id
             if m.name:
                 d["name"] = m.name
+            if m.tool_calls:
+                d["tool_calls"] = [
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.name, "arguments": tc.arguments if isinstance(tc.arguments, str) else json.dumps(tc.arguments)}}
+                    for tc in m.tool_calls
+                ]
             result.append(d)
         return result
 
@@ -45,56 +50,14 @@ class OpenAIAdapter:
         ]
 
     def complete(
-        self,
-        messages: list[Message],
-        tools: list[ToolDef] | None = None,
+        self, messages: list[Message], tools: list[ToolDef] | None = None
     ) -> LLMResponse:
-        params: dict = {
-            "model": self.model,
-            "messages": self._convert_messages(messages),
-        }
+        params = {"model": self.model, "messages": self._convert_messages(messages)}
         if tools:
             params["tools"] = self._convert_tools(tools)
-
-        resp = self._client.chat.completions.create(**params)
-        choice = resp.choices[0]
-
-        tool_calls = None
+        choice = self._client.chat.completions.create(**params).choices[0]
+        tcalls = None
         if choice.message.tool_calls:
-            tool_calls = [
-                ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    arguments=tc.function.arguments,
-                )
-                for tc in choice.message.tool_calls
-            ]
+            tcalls = [ToolCall(id=t.id, name=t.function.name, arguments=t.function.arguments) for t in choice.message.tool_calls]
+        return LLMResponse(content=choice.message.content or "", tool_calls=tcalls, stop_reason=choice.finish_reason or "stop")
 
-        return LLMResponse(
-            content=choice.message.content or "",
-            tool_calls=tool_calls,
-            stop_reason=choice.finish_reason or "stop",
-        )
-
-    def stream(
-        self,
-        messages: list[Message],
-        tools: list[ToolDef] | None = None,
-    ) -> Iterator[LLMChunk]:
-        params: dict = {
-            "model": self.model,
-            "messages": self._convert_messages(messages),
-            "stream": True,
-        }
-        if tools:
-            params["tools"] = self._convert_tools(tools)
-
-        stream = self._client.chat.completions.create(**params)
-        for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if not delta:
-                continue
-            yield LLMChunk(
-                content=delta.content or "",
-                finish_reason=chunk.choices[0].finish_reason,
-            )
