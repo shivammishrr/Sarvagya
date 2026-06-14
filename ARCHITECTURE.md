@@ -4,7 +4,7 @@ Autonomous AI agent with hexagonal architecture. Zero coupling to LLM providers,
 
 ## Interactive Architecture Diagram
 
-Open **[docs/architecture.html](docs/architecture.html)** in a browser for a full interactive visualization.
+See **[README.md](README.md)** for inline architecture diagrams (HLD, agent loop, data flow, provider detection, domain types, file structure).
 
 ## Provider Detection
 
