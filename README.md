@@ -16,55 +16,60 @@ Sarvagya uses **hexagonal architecture (Ports & Adapters)**. The domain layer (`
 
 ```mermaid
 flowchart TB
-    subgraph CLI["Composition Root"]
-        main_py["main.py"]
-        core_init["core/__init__.py<br/>wires everything"]
-    end
-
-    subgraph Core["Domain Layer (core/) — zero external deps"]
-        types["types.py<br/>8 dataclasses"]
-        loop["loop.py<br/>AgentLoop"]
-        context["context.py<br/>prompt builder"]
-        registry["tool_registry.py<br/>register + dispatch"]
-        tools_pkg["tools/<br/>bash, file_ops, search, web"]
-    end
-
-    subgraph Ports["Ports Layer (ports/) — Protocols only"]
-        port_llm["LLMProvider"]
-        port_sbox["Sandbox"]
-        port_mem["Memory"]
-        port_srch["WebSearch"]
-    end
-
-    subgraph Adapters["Adapters Layer (adapters/) — SDKs live here"]
-        adapt_llm["llm/<br/>OpenAIAdapter · AnthropicAdapter"]
-        adapt_sbox["sandbox/<br/>LocalSandbox"]
-        adapt_mem["memory/<br/>FileMemory"]
-        adapt_srch["search/<br/>TavilySearch"]
-    end
-
-    subgraph External["External"]
+    subgraph User["User / CLI"]
         direction LR
-        API["OpenAI / Groq / Gemini / etc"]
-        CLAUDE["Anthropic Claude"]
-        FS["Filesystem"]
+        CLI["CLI Entry<br/>argparse"]
+        CR["Composition Root<br/>Dependency Injection"]
     end
 
-    main_py --> core_init
-    core_init --> loop & registry & tools_pkg
-    core_init --> adapt_llm & adapt_sbox & adapt_mem & adapt_srch
-    loop --> port_llm & port_sbox & port_mem
-    loop --> context & registry
-    tools_pkg --> registry
+    subgraph Domain["Domain Layer — zero external deps"]
+        direction TB
+        LOOP["Agent Loop<br/>think → tool → observe"]
+        TYPES["Domain Types<br/>Message · ToolDef · ToolCall · etc"]
+        CTX["Context Builder<br/>system prompt + tool schemas"]
+        REG["Tool Registry<br/>register · schema · dispatch"]
+        TOOLS["Built-in Tools<br/>bash · file_ops · search · web"]
+    end
 
-    port_llm -.-> adapt_llm
-    port_sbox -.-> adapt_sbox
-    port_mem -.-> adapt_mem
-    port_srch -.-> adapt_srch
+    subgraph Ports["Port Layer — Protocols"]
+        direction TB
+        P_LLM["LLM Provider<br/>complete()"]
+        P_SBOX["Sandbox<br/>execute · read · write"]
+        P_MEM["Memory<br/>save · load · list"]
+        P_SRCH["Web Search<br/>search()"]
+    end
 
-    adapt_llm --> API & CLAUDE
-    adapt_sbox --> FS
-    adapt_mem --> FS
+    subgraph Adapters["Adapter Layer — SDK implementations"]
+        direction TB
+        A_LLM["OpenAI Adapter<br/>OpenAI SDK<br/>Anthropic Adapter<br/>Anthropic SDK"]
+        A_SBOX["Local Sandbox<br/>subprocess"]
+        A_MEM["File Memory<br/>markdown + frontmatter"]
+        A_SRCH["Tavily Search<br/>tavily-python"]
+    end
+
+    subgraph External["External Services"]
+        direction LR
+        EXT_LLM["LLM APIs<br/>OpenAI · Groq · Gemini · Claude"]
+        EXT_FS["Filesystem"]
+    end
+
+    CLI --> CR
+    CR --> LOOP & REG & TOOLS
+    CR --> A_LLM & A_SBOX & A_MEM & A_SRCH
+
+    LOOP --> P_LLM & P_SBOX & P_MEM
+    LOOP --> CTX & REG
+    TOOLS --> REG
+    CTX --> TYPES
+
+    P_LLM -.->|implements| A_LLM
+    P_SBOX -.->|implements| A_SBOX
+    P_MEM -.->|implements| A_MEM
+    P_SRCH -.->|implements| A_SRCH
+
+    A_LLM -->|HTTP| EXT_LLM
+    A_SBOX -->|subprocess| EXT_FS
+    A_MEM -->|read/write| EXT_FS
 ```
 
 ## Agent Loop
