@@ -171,27 +171,6 @@ sequenceDiagram
     Agent-->>CR: AgentResult(error="max iterations")
 ```
 
-## Provider Detection
-
-Provider is inferred from the model name — no config flags needed:
-
-```mermaid
-flowchart LR
-    MODEL["model name"] --> DETECT{"contains<br/>claude / anthropic?"}
-    DETECT -->|yes| AA["AnthropicAdapter<br/>(anthropic SDK)"]
-    DETECT -->|no| OA["OpenAIAdapter<br/>(openai SDK)"]
-
-    API["API_KEY"] --> AA & OA
-    OBASE["OPENAI_BASE_URL<br/>(optional)"] -.->|"read natively by SDK"| OA
-```
-
-| Model pattern | Adapter | SDK |
-|---|---|---|
-| `claude-*`, `anthropic-*` | AnthropicAdapter | `anthropic` |
-| Everything else (`gpt-4o`, `gemini-*`, `llama-*`, etc.) | OpenAIAdapter | `openai` |
-
-Set `OPENAI_BASE_URL` env var for non-default endpoints (Groq, Gemini, Together, etc.).
-
 ## Domain Types
 
 All types are `@dataclass` classes in `core/types.py` (62 lines).
