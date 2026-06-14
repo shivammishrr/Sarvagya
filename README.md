@@ -12,28 +12,56 @@ sarvagya "List all Python files in this project"
 
 ## Architecture
 
-An autonomous AI agent that takes a task, uses an LLM to decide what actions to take, executes them, and returns results.
+```mermaid
+flowchart LR
+    subgraph User[" "]
+        U(["You"]):::user
+    end
 
+    subgraph System["Sarvagya"]
+        CLI["CLI"]:::component
+        CORE["Agent Core<br/>think → tool → observe"]:::core
+        LLM["LLM<br/>decides next action"]:::llm
+        SBOX["Sandbox<br/>shell commands"]:::tool
+        MEM["Memory<br/>markdown files"]:::tool
+        SEARCH["Web Search<br/>optional"]:::tool
+    end
+
+    subgraph External[" "]
+        EXT_LLM["OpenAI / Groq /<br/>Gemini / Claude"]:::external
+        EXT_FS["Filesystem"]:::external
+        EXT_WEB["Tavily API"]:::external
+    end
+
+    U -->|"task"| CLI
+    CLI --> CORE
+    CORE <-->|"asks"| LLM
+    LLM --> EXT_LLM
+    CORE -->|"runs"| SBOX
+    CORE -->|"stores"| MEM
+    CORE -.->|"optional"| SEARCH
+    SBOX --> EXT_FS
+    MEM --> EXT_FS
+    SEARCH --> EXT_WEB
+    CORE -->|"final answer"| U
+
+    classDef user fill:#1a3a2a,stroke:#3fb950,stroke-width:2px,color:#e6edf3
+    classDef component fill:#1a3a5f,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+    classDef core fill:#1a1525,stroke:#bc8cff,stroke-width:2px,color:#e6edf3
+    classDef llm fill:#2a1a3a,stroke:#d29922,stroke-width:2px,color:#e6edf3
+    classDef tool fill:#1c2333,stroke:#39d2c0,stroke-width:2px,color:#e6edf3
+    classDef external fill:#1a150d,stroke:#8b949e,stroke-width:2px,color:#8b949e
 ```
-User → CLI → Core (think → tool → observe → repeat) → LLM / Filesystem / Search → Final answer
-```
 
-**Major components:**
-- **CLI** — accepts task + flags
-- **Agent Core** — orchestration loop (think → tool → observe → repeat)
-- **LLM** — provider that decides which tool to call (OpenAI, Groq, Anthropic, etc.)
-- **Sandbox** — executes shell commands on your machine
-- **Memory** — stores notes in markdown files
-- **Web Search** — optional Tavily integration for real-time info
+**What it is:** An autonomous AI agent. You give it a task, it asks an LLM what to do, runs the tool, observes the result, asks again, repeats until it has a final answer.
 
-**How they talk:** CLI delivers the task → Core asks LLM what to do → Core runs the chosen tool → Result goes back to Core → Core asks LLM again → Repeat until LLM gives a final answer → Answer returned to user
+**How it works:** `You → CLI → Core ↔ LLM → runs Sandbox/Memory/Search → loops back → final answer`
 
-**External dependencies:**
-- LLM APIs (OpenAI-compatible, Anthropic Claude)
-- Local filesystem (command execution, file read/write)
-- Tavily Search API (optional)
+**Components:** CLI (accepts task), Agent Core (orchestrates), LLM (decides), Sandbox (executes commands), Memory (stores notes), Web Search (optional)
 
-**Tech stack:** Python 3.13 · OpenAI SDK · Anthropic SDK · hexagonal pattern · markdown files for memory
+**Externals:** LLM APIs (OpenAI, Groq, Gemini, Claude), Filesystem, Tavily (optional)
+
+**Tech:** Python 3.13 · OpenAI SDK · Anthropic SDK · hexagonal pattern · markdown files
 
 ## Implementation Details
 
